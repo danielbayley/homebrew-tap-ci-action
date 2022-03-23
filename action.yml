@@ -1,0 +1,109 @@
+name: Homebrew Tap CI action
+author: Daniel Bayley #${{github.repository_owner}}
+description: GitHub action to provide simple CI for your Homebrew tap.
+branding:
+  icon: repeat #check #play #-circle #settings
+  color: yellow
+
+inputs:
+  exclude:
+    description: "[Extended] glob pattern matching files to exclude from style checks."
+    required: false
+
+#outputs:
+  #output:
+    #description: Description.
+    #value: ${{ steps.copycat.outputs.output }}
+
+runs:
+  #using: docker
+  #image: Dockerfile #docker://debian:stretch-slim
+  #args: []
+  #pre-entrypoint: setup.sh
+  #entrypoint: action.sh
+  #post-entrypoint: cleanup.sh
+  using: composite
+  #runs-on: macos-latest
+  steps:
+  #- uses: actions/checkout@v3
+    #with:
+      #repository: ${{inputs.source_repo || github.repository}}
+      #ref: ${{inputs.source_branch || inputs.branch}}
+
+  - id: set-up-homebrew
+    uses: Homebrew/actions/setup-homebrew@master
+
+  - id: cache
+    uses: actions/cache@v1
+    with:
+      path: ${{ steps.set-up-homebrew.outputs.gems-path }}
+      key: ${{ runner.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+      restore-keys: ${{ runner.os }}-rubygems-
+
+  - if: steps.cache.outputs.cache-hit != 'true' #== 'false'
+    shell: sh
+    run: brew install-bundler-gems
+
+  #- uses: Homebrew/actions/git-user-config@masters
+
+  - shell: sh
+    run: brew test-bot --only-formulae
+    if: github.event_name == 'pull_request'
+
+  - shell: sh
+    run: | #brew test-bot --only-cleanup-before --only-setup #--only-tap-syntax
+      brew test-bot --only-cleanup-before
+      brew test-bot --only-setup
+
+  #- run: brew test-bot --only-cleanup-before
+  #- run: brew test-bot --only-setup
+  #- run: brew test-bot --only-tap-syntax
+  #- run: brew test-bot --only-formulae
+    #if: github.event_name == 'pull_request'
+
+  - if: hashFiles('.rubocop.yml') != ''
+    env:
+      HOMEBREW_BOOTSNAP: true
+      HOMEBREW_DEVELOPER: true
+      #HOMEBREW_REPOSITORY: /usr/local/Homebrew
+      #HOMEBREW_LIBRARY: /usr/local/Homebrew/Library
+    #working-directory: ${{github.workspace}} #/usr/local/Homebrew/Library/Taps/danielbayley/homebrew-tap
+    shell: sh #/bin/zsh --no-rcs --err-exit {0} #--pipe-fail
+    run: |
+      brew readall --aliases $GITHUB_REPOSITORY
+      ../../../Homebrew/utils/rubocop.rb --config .rubocop.yml
+      brew audit --tap $GITHUB_REPOSITORY --except version #,checksum
+
+  - if: hashFiles('.rubocop.yml') == ''
+    shell: sh
+    run: brew test-bot --only-tap-syntax
+
+  - if: github.event_name == 'pull_request'
+    shell: sh # TODO cask
+    run: brew test-bot --only-formulae
+
+  #- run: brew typecheck #--dir $GITHUB_REPOSITORY
+
+  - id: homebrew-tap-ci
+    #name: ${{github.workflow}} files #${{github.job}} TODO
+    env:
+      HOMEBREW_BOOTSNAP: true
+      HOMEBREW_DEVELOPER: true
+      #GIT_AUTHOR_NAME: ${{env.GIT_AUTHOR_NAME || inputs.git_author_name}} #github.event.inputs.git_author_name
+      #git_author_name: ${{env.GIT_AUTHOR_NAME || inputs.git_author_name}}
+
+    #working-directory: ${{github.workspace}}
+    #shell: /bin/zsh --no-rcs --err-exit --pipe-fail {0}
+    # https://github.com/danielbayley/homebrew-dotfiles/tree/master/.github/hooks/pre-commit
+    #run: source $GITHUB_ACTION_PATH/action.zsh #/.github/hooks/pre-commit #${{github.action_path}}/
+
+    shell: sh
+    run: $GITHUB_ACTION_PATH/action.zsh \* #$PWD
+
+
+  #- name: Upload bottles as artifact
+    #if: always() && github.event_name == 'pull_request'
+    #uses: actions/upload-artifact@main
+    #with:
+      #name: bottles
+      #path: '*.bottle.*'
